@@ -15,6 +15,7 @@ type lobject =
   | Symbol of string
   | Nil
   | Pair of lobject * lobject
+  | Primitive of string * (lobject list -> lobject)
 
 let rec lookup (n, e) =
   match e with
@@ -46,15 +47,31 @@ let rec eval_sexp sexp env =
   | Boolean v -> Boolean v, env
   | Symbol name -> lookup (name, env), env
   | Nil -> Nil, env
+  | Primitive (n, f) -> Primitive (n, f), env
   | Pair (_, _) when is_list sexp ->
     (match pair_to_list sexp with
      | [ Symbol "if"; cond; iftrue; iffalse ] ->
-       eval_sexp (eval_if cond iftrue iffalse) env
-     | [ Symbol "pair"; car; cdr ] -> Pair (car, cdr), env
+       fst (eval_sexp (eval_if cond iftrue iffalse) env), env
      | [ Symbol "env" ] -> env, env
      | [ Symbol "val"; Symbol name; exp ] ->
        let expval, _ = eval_sexp exp env in
        let env' = bind (name, expval, env) in
        expval, env'
+     | Symbol fn :: args ->
+       (match eval_sexp (Symbol fn) env with
+        | Primitive (n, f), _ -> f args, env
+        | _ -> raise (TypeError "(apply func args)"))
      | _ -> sexp, env)
   | _ -> sexp, env
+
+let basis =
+  let prim_plus = function
+    | [ Fixnum a; Fixnum b ] -> Fixnum (a + b)
+    | _ -> raise (TypeError "(+ int int)")
+  in
+  let prim_pair = function
+    | [ a; b ] -> Pair (a, b)
+    | _ -> raise (TypeError "(pair a b)")
+  in
+  let newprim acc (name, func) = bind (name, Primitive (name, func), acc) in
+  List.fold_left newprim Nil [ "+", prim_plus; "pair", prim_pair ]

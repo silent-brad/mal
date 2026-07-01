@@ -106,6 +106,7 @@ let rec print_sexp e =
     print_string "(";
     if Core.is_list e then print_list e else print_pair e;
     print_string ")"
+  | Primitive (name, _) -> print_string ("#<primitive:" ^ name ^ ">")
 
 let rec repl stm env =
   print_string "> ";
@@ -116,4 +117,4 @@ let rec repl stm env =
 
 let main =
   let stm = { chr = []; line_num = 1; chan = stdin } in
-  repl stm Nil
+  repl stm Core.basis
