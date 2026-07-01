@@ -1,13 +1,7 @@
 (* Make a Lisp *)
 
-exception SyntaxError of string
-exception ThisCan'tHappenError
-
-type stream =
-  { mutable line_num : int
-  ; mutable chr : char list
-  ; chan : in_channel
-  }
+open Mal
+open Mal.Core
 
 let read_char stm =
   match stm.chr with
@@ -29,19 +23,6 @@ let rec eat_whitespace stm =
   let c = read_char stm in
   if is_white c then eat_whitespace stm else unread_char stm c
 
-type lobject =
-  | Fixnum of int
-  | Boolean of bool
-  | Symbol of string
-  | Nil
-  | Pair of lobject * lobject
-
-let rec pair_to_list pr =
-  match pr with
-  | Nil -> []
-  | Pair (a, b) -> a :: pair_to_list b
-  | _ -> raise ThisCan'tHappenError
-
 let string_of_char c = String.make 1 c
 
 let rec read_sexp stm =
@@ -55,7 +36,7 @@ let rec read_sexp stm =
     then read_fixnum (acc ^ Char.escaped nc)
     else (
       let _ = unread_char stm nc in
-      Fixnum (int_of_string acc))
+      Core.Fixnum (int_of_string acc))
   in
   let is_symstartchar =
     let is_alpha = function 'A' .. 'Z' | 'a' .. 'z' -> true | _ -> false in
@@ -80,17 +61,17 @@ let rec read_sexp stm =
     eat_whitespace stm;
     let c = read_char stm in
     if c = ')'
-    then Nil
+    then Core.Nil
     else (
       let _ = unread_char stm c in
       let car = read_sexp stm in
       let cdr = read_list stm in
-      Pair (car, cdr))
+      Core.Pair (car, cdr))
   in
   eat_whitespace stm;
   let c = read_char stm in
   if is_symstartchar c
-  then Symbol (string_of_char c ^ read_symbol ())
+  then Core.Symbol (string_of_char c ^ read_symbol ())
   else if c = '('
   then read_list stm
   else if is_digit c || c = '~'
@@ -98,42 +79,47 @@ let rec read_sexp stm =
   else if c = '#'
   then (
     match read_char stm with
-    | 't' -> Boolean true
-    | 'f' -> Boolean false
-    | x -> raise (SyntaxError ("Invalid boolean literal " ^ Char.escaped x)))
-  else raise (SyntaxError ("Unexpected char " ^ Char.escaped c))
+    | 't' -> Core.Boolean true
+    | 'f' -> Core.Boolean false
+    | x ->
+      raise (Core.SyntaxError ("Invalid boolean literal " ^ Char.escaped x)))
+  else raise (Core.SyntaxError ("Unexpected char " ^ Char.escaped c))
 
 let rec print_sexp e =
   let rec is_list e =
-    match e with Nil -> true | Pair (a, b) -> is_list b | _ -> false
+    match e with
+    | Core.Nil -> true
+    | Core.Pair (a, b) -> is_list b
+    | _ -> false
   in
   let rec print_list l =
     match l with
-    | Pair (a, Nil) -> print_sexp a
-    | Pair (a, b) -> print_sexp a; print_string " "; print_list b
-    | _ -> raise ThisCan'tHappenError
+    | Core.Pair (a, Nil) -> print_sexp a
+    | Core.Pair (a, b) -> print_sexp a; print_string " "; print_list b
+    | _ -> raise Core.ThisCan'tHappenError
   in
   let print_pair p =
     match p with
-    | Pair (a, b) -> print_sexp a; print_string ". "; print_sexp b
-    | _ -> raise ThisCan'tHappenError
+    | Core.Pair (a, b) -> print_sexp a; print_string ". "; print_sexp b
+    | _ -> raise Core.ThisCan'tHappenError
   in
   match e with
-  | Fixnum v -> print_int v
-  | Boolean b -> print_string (if b then "#t" else "#f")
-  | Symbol s -> print_string s
-  | Nil -> print_string "nil"
-  | Pair (a, b) ->
+  | Core.Fixnum v -> print_int v
+  | Core.Boolean b -> print_string (if b then "#t" else "#f")
+  | Core.Symbol s -> print_string s
+  | Core.Nil -> print_string "nil"
+  | Core.Pair (a, b) ->
     print_string "(";
     if is_list e then print_list e else print_pair e;
     print_string ")"
 
-let rec repl stm =
+let rec repl stm env =
   print_string "> ";
   flush stdout;
   let sexp = read_sexp stm in
-  print_sexp sexp; print_newline (); repl stm
+  let result, env' = Core.eval_sexp sexp env in
+  print_sexp result; print_newline (); repl stm env'
 
 let main =
   let stm = { chr = []; line_num = 1; chan = stdin } in
-  repl stm
+  repl stm Nil
