@@ -89,35 +89,73 @@ let rec read_sexp stm =
   else
     raise (Core.SyntaxError ("Unexpected char " ^ Char.escaped c))
 
-let rec print_val e =
-  let rec print_list l =
+let rec string_exp = function
+  | Core.Literal e -> string_val e
+  | Core.Var n -> n
+  | Core.If (c, t, f) ->
+    "(if " ^ string_exp c ^ " " ^ string_exp t ^ " " ^ string_exp f ^ ")"
+  | Core.And (c0, c1) -> "(and " ^ string_exp c0 ^ " " ^ string_exp c1 ^ ")"
+  | Core.Or (c0, c1) -> "(or " ^ string_exp c0 ^ " " ^ string_exp c1 ^ ")"
+  | Core.Apply (f, e) -> "(apply " ^ string_exp f ^ " " ^ string_exp e ^ ")"
+  | Core.Call (f, es) ->
+    let string_es = String.concat " " (List.map string_exp es) in
+    "(" ^ string_exp f ^ " " ^ string_es ^ ")"
+  | Core.Defexp (Val (n, e)) -> "(val " ^ n ^ " " ^ string_exp e ^ ")"
+  | Core.Defexp (Exp e) -> string_exp e
+
+and string_val e =
+  let rec string_list l =
     match l with
-    | Core.Pair (a, Nil) -> print_val a
-    | Core.Pair (a, b) -> print_val a; print_string " "; print_list b
+    | Core.Pair (a, Nil) -> string_val a
+    | Core.Pair (a, b) -> string_val a ^ " " ^ string_list b
     | _ -> raise Core.ThisCan'tHappenError
   in
-  let print_pair p =
+  let string_pair p =
     match p with
-    | Core.Pair (a, b) -> print_val a; print_string ". "; print_val b
+    | Core.Pair (a, b) -> string_val a ^ " . " ^ string_val b
     | _ -> raise Core.ThisCan'tHappenError
   in
   match e with
-  | Core.Fixnum v -> print_int v
-  | Core.Boolean b -> print_string (if b then "#t" else "#f")
-  | Core.Symbol s -> print_string s
-  | Core.Nil -> print_string "nil"
+  | Core.Fixnum v -> string_of_int v
+  | Core.Boolean b -> if b then "#t" else "#f"
+  | Core.Symbol s -> s
+  | Core.Nil -> "nil"
   | Core.Pair (a, b) ->
-    print_string "(";
-    if Core.is_list e then print_list e else print_pair e;
-    print_string ")"
-  | Primitive (name, _) -> print_string ("#<primitive:" ^ name ^ ">")
+    "(" ^ (if is_list e then string_list e else string_pair e) ^ ")"
+  | Core.Primitive (name, _) -> "#<primitive:" ^ name ^ ">"
+  | Core.Quote v -> "'" ^ string_val v
+
+(* let rec print_val e = *)
+(*   let rec print_list l = *)
+(*     match l with *)
+(*     | Core.Pair (a, Nil) -> print_val a *)
+(*     | Core.Pair (a, b) -> print_val a; print_string " "; print_list b *)
+(*     | _ -> raise Core.ThisCan'tHappenError *)
+(*   in *)
+(*   let print_pair p = *)
+(*     match p with *)
+(*     | Core.Pair (a, b) -> print_val a; print_string ". "; print_val b *)
+(*     | _ -> raise Core.ThisCan'tHappenError *)
+(*   in *)
+(*   match e with *)
+(*   | Core.Fixnum v -> print_int v *)
+(*   | Core.Boolean b -> print_string (if b then "#t" else "#f") *)
+(*   | Core.Symbol s -> print_string s *)
+(*   | Core.Nil -> print_string "nil" *)
+(*   | Core.Pair (a, b) -> *)
+(*     print_string "("; *)
+(*     if Core.is_list e then print_list e else print_pair e; *)
+(*     print_string ")" *)
+(*   | Primitive (name, _) -> print_string ("#<primitive:" ^ name ^ ">") *)
+(*   | Quote v -> "'" ^ string_val v *)
 
 let rec repl stm env =
   print_string "> ";
   flush stdout;
   let ast = Core.build_ast (read_sexp stm) in
   let result, env' = Core.eval ast env in
-  print_val result; print_newline (); repl stm env'
+  print_endline (string_val result);
+  repl stm env'
 
 let main =
   let stm = { chr = []; line_num = 1; chan = stdin } in

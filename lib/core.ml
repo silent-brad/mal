@@ -55,13 +55,14 @@ let rec is_list e =
   match e with Nil -> true | Pair (a, b) -> is_list b | _ -> false
 
 (* TODO: Move to AST *)
-let evalexp exp env =
+let rec evalexp exp env =
   let evalapply f es =
     match f with
     | Primitive (_, f) -> f es
     | _ -> raise (TypeError "(apply prim '(args)) or (prim args)")
   in
   let rec ev = function
+    | Literal (Quote e) -> e
     | Literal l -> l
     | Var n -> lookup (n, env)
     | If (c, t, f) when ev c = Boolean true -> ev t
@@ -115,7 +116,7 @@ let basis =
 let rec build_ast sexp =
   match sexp with
   | Primitive _ -> raise ThisCan'tHappenError
-  | Fixnum _ | Boolean _ | Nil -> Literal sexp
+  | Fixnum _ | Boolean _ | Nil | Quote _ -> Literal sexp
   | Symbol s -> Var s
   | Pair _ when is_list sexp ->
     (match pair_to_list sexp with
@@ -123,6 +124,7 @@ let rec build_ast sexp =
        If (build_ast cond, build_ast iftrue, build_ast iffalse)
      | [ Symbol "and"; c1; c2 ] -> And (build_ast c1, build_ast c2)
      | [ Symbol "or"; c1; c2 ] -> Or (build_ast c1, build_ast c2)
+     | [ Symbol "quote"; e ] -> Literal (Quote e)
      | [ Symbol "val"; Symbol n; e ] -> Defexp (Val (n, build_ast e))
      | [ Symbol "apply"; fnexp; args ] when is_list args ->
        Apply (build_ast fnexp, build_ast args)
