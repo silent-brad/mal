@@ -1,13 +1,14 @@
 open Types
 open Env
 open Printer
+open Reader
 
 let rec evalexp exp env =
   let evalapply f vs =
     match f with
     | Primitive (_, f) -> f vs
     | Closure (ns, e, clenv) -> evalexp e (bindlist ns vs clenv)
-    | _ -> raise (TypeError "(apply prim '(args)) or (prim args)")
+    | _ -> raise @@ TypeError "(apply prim '(args)) or (prim args)"
   in
   let rec unzip ls = List.map fst ls, List.map snd ls in
   let rec ev = function
@@ -16,15 +17,15 @@ let rec evalexp exp env =
     | Var n -> lookup (n, env)
     | If (c, t, f) when ev c = Boolean true -> ev t
     | If (c, t, f) when ev c = Boolean false -> ev f
-    | If _ -> raise (TypeError "(if bool e1 e2)")
+    | If _ -> raise @@ TypeError "(if bool e1 e2)"
     | And (c1, c2) ->
       (match ev c1, ev c2 with
        | Boolean v1, Boolean v2 -> Boolean (v1 && v2)
-       | _ -> raise (TypeError "(and bool bool)"))
+       | _ -> raise @@ TypeError "(and bool bool)")
     | Or (c1, c2) ->
       (match ev c1, ev c2 with
        | Boolean v1, Boolean v2 -> Boolean (v1 || v2)
-       | _ -> raise (TypeError "(or bool bool)"))
+       | _ -> raise @@ TypeError "(or bool bool)")
     | Apply (fn, e) -> evalapply (ev fn) (pair_to_list (ev e))
     | Call (Var "env", []) -> env_to_val env
     | Call (e, es) -> evalapply (ev e) (List.map ev es)
@@ -54,7 +55,7 @@ let evaldef def env =
     let formals, body, cl_env =
       match evalexp (Lambda (ns, e)) env with
       | Closure (fs, bod, env) -> fs, bod, env
-      | _ -> raise (TypeError "Expecting closure")
+      | _ -> raise @@ TypeError "Expecting closure"
     in
     let loc = mkloc () in
     let clo = Closure (formals, body, bindloc (n, loc, cl_env)) in
@@ -70,13 +71,13 @@ let basis =
     ( name
     , function
       | [ Fixnum a; Fixnum b ] -> Fixnum (op a b)
-      | _ -> raise (TypeError ("(" ^ name ^ " int int)")) )
+      | _ -> raise @@ TypeError ("(" ^ name ^ " int int)") )
   in
   let cmpprim name op =
     ( name
     , function
       | [ Fixnum a; Fixnum b ] -> Boolean (op a b)
-      | _ -> raise (TypeError ("(" ^ name ^ " int int)")) )
+      | _ -> raise @@ TypeError ("(" ^ name ^ " int int)") )
   in
   let rec prim_list = function
     | [] -> Nil
@@ -84,32 +85,52 @@ let basis =
   in
   let prim_pair = function
     | [ a; b ] -> Pair (a, b)
-    | _ -> raise (TypeError "(pair a b)")
+    | _ -> raise @@ TypeError "(pair a b)"
   in
   let prim_car = function
     | [ Pair (car, _) ] -> car
-    | [ e ] -> raise (TypeError ("(car non-nil-pair) " ^ string_val e))
-    | _ -> raise (TypeError "(car single-arg)")
+    | [ e ] -> raise @@ TypeError ("(car non-nil-pair) " ^ string_val e)
+    | _ -> raise @@ TypeError "(car single-arg)"
   in
   let prim_cdr = function
     | [ Pair (_, cdr) ] -> cdr
-    | [ e ] -> raise (TypeError ("(cdr non-nil-pair) " ^ string_val e))
-    | _ -> raise (TypeError "(cdr single-arg)")
+    | [ e ] -> raise @@ TypeError ("(cdr non-nil-pair) " ^ string_val e)
+    | _ -> raise @@ TypeError "(cdr single-arg)"
   in
   let prim_eq = function
     | [ a; b ] -> Boolean (a = b)
-    | _ -> raise (TypeError "(eq a b)")
+    | _ -> raise @@ TypeError "(eq a b)"
   in
   let prim_symp = function
     | [ Symbol _ ] -> Boolean true
     | [ _ ] -> Boolean false
-    | _ -> raise (TypeError "(sym? single-arg)")
+    | _ -> raise @@ TypeError "(sym? single-arg)"
   in
   let prim_atomp = function
     | [ Nil ] -> Boolean true
     | [ Pair (_, _) ] -> Boolean false
     | [ _ ] -> Boolean true
-    | _ -> raise (TypeError "(atom? single-arg)")
+    | _ -> raise @@ TypeError "(atom? single-arg)"
+  in
+  let prim_getchar = function
+    | [] ->
+      (try Fixnum (int_of_char @@ input_char stdin) with
+       | End_of_file -> Fixnum (-1))
+    | _ -> raise @@ TypeError "(getchar)"
+  in
+  let prim_print = function
+    | [ v ] ->
+      let () = print_string @@ string_val v in
+      Symbol "ok"
+    | _ -> raise @@ TypeError "(print val)"
+  in
+  let prim_itoc = function
+    | [ Fixnum i ] -> Symbol (string_of_char @@ char_of_int i)
+    | _ -> raise @@ TypeError "(itoc int)"
+  in
+  let prim_cat = function
+    | [ Symbol a; Symbol b ] -> Symbol (a ^ b)
+    | _ -> raise @@ TypeError "(cat sym syn)"
   in
   let newprim acc (name, func) = bind (name, Primitive (name, func), acc) in
   List.fold_left
@@ -129,4 +150,8 @@ let basis =
     ; "eq", prim_eq
     ; "atom?", prim_atomp
     ; "sym?", prim_symp
+    ; "getchar", prim_getchar
+    ; "print", prim_print
+    ; "itoc", prim_itoc
+    ; "cat", prim_cat
     ]

@@ -84,8 +84,8 @@ let rec read_sexp stm =
     with
     | 't' -> Boolean true
     | 'f' -> Boolean false
-    | x -> raise (SyntaxError ("Invalid boolean literal " ^ Char.escaped x)))
+    | x -> raise @@ SyntaxError ("Invalid boolean literal " ^ Char.escaped x))
   else if c = '\'' then
     Quote (read_sexp stm)
   else
-    raise (SyntaxError ("Unexpected char " ^ Char.escaped c))
+    raise @@ SyntaxError ("Unexpected char " ^ Char.escaped c)

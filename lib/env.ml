@@ -1,9 +1,9 @@
 open Types
 
 let rec lookup = function
-  | n, [] -> raise (NotFound n)
+  | n, [] -> raise @@ NotFound n
   | n, (n', v) :: _ when n = n' ->
-    (match !v with Some v' -> v' | None -> raise (UnspecifiedValue n))
+    (match !v with Some v' -> v' | None -> raise @@ UnspecifiedValue n)
   | n, (n', _) :: bs -> lookup (n, bs)
 
 let bind (n, v, e) = (n, ref (Some v)) :: e
