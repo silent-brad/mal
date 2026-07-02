@@ -7,11 +7,11 @@ let read_char stm =
   match stm.chr with
   | [] ->
     let c = input_char stm.chan in
-    if c = '\n'
-    then (
+    if c = '\n' then (
       let _ = stm.line_num <- stm.line_num + 1 in
       c)
-    else c
+    else
+      c
   | c :: rest ->
     let _ = stm.chr <- rest in
     c
@@ -32,8 +32,8 @@ let rec read_sexp stm =
   in
   let rec read_fixnum acc =
     let nc = read_char stm in
-    if is_digit nc
-    then read_fixnum (acc ^ Char.escaped nc)
+    if is_digit nc then
+      read_fixnum (acc ^ Char.escaped nc)
     else (
       let _ = unread_char stm nc in
       Core.Fixnum (int_of_string acc))
@@ -51,17 +51,17 @@ let rec read_sexp stm =
       | c -> is_white c
     in
     let nc = read_char stm in
-    if is_delimiter nc
-    then (
+    if is_delimiter nc then (
       let _ = unread_char stm nc in
       "")
-    else string_of_char nc ^ read_symbol ()
+    else
+      string_of_char nc ^ read_symbol ()
   in
   let rec read_list stm =
     eat_whitespace stm;
     let c = read_char stm in
-    if c = ')'
-    then Core.Nil
+    if c = ')' then
+      Core.Nil
     else (
       let _ = unread_char stm c in
       let car = read_sexp stm in
@@ -70,20 +70,24 @@ let rec read_sexp stm =
   in
   eat_whitespace stm;
   let c = read_char stm in
-  if is_symstartchar c
-  then Core.Symbol (string_of_char c ^ read_symbol ())
-  else if c = '('
-  then read_list stm
-  else if is_digit c || c = '~'
-  then read_fixnum (Char.escaped (if c = '~' then '-' else c))
-  else if c = '#'
-  then (
-    match read_char stm with
+  if is_symstartchar c then
+    Core.Symbol (string_of_char c ^ read_symbol ())
+  else if c = '(' then
+    read_list stm
+  else if is_digit c || c = '~' then
+    read_fixnum (Char.escaped (if c = '~' then '-' else c))
+  else if c = '#' then (
+    match
+      read_char stm
+    with
     | 't' -> Core.Boolean true
     | 'f' -> Core.Boolean false
     | x ->
       raise (Core.SyntaxError ("Invalid boolean literal " ^ Char.escaped x)))
-  else raise (Core.SyntaxError ("Unexpected char " ^ Char.escaped c))
+  else if c = '\'' then
+    Quote (read_sexp stm)
+  else
+    raise (Core.SyntaxError ("Unexpected char " ^ Char.escaped c))
 
 let rec print_val e =
   let rec print_list l =

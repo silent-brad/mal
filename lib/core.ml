@@ -18,6 +18,7 @@ type lobject =
   | Nil
   | Pair of lobject * lobject
   | Primitive of string * (lobject list -> lobject)
+  | Quote of value
 
 and value = lobject
 and name = string
