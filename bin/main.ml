@@ -85,16 +85,16 @@ let rec read_sexp stm =
       raise (Core.SyntaxError ("Invalid boolean literal " ^ Char.escaped x)))
   else raise (Core.SyntaxError ("Unexpected char " ^ Char.escaped c))
 
-let rec print_sexp e =
+let rec print_val e =
   let rec print_list l =
     match l with
-    | Core.Pair (a, Nil) -> print_sexp a
-    | Core.Pair (a, b) -> print_sexp a; print_string " "; print_list b
+    | Core.Pair (a, Nil) -> print_val a
+    | Core.Pair (a, b) -> print_val a; print_string " "; print_list b
     | _ -> raise Core.ThisCan'tHappenError
   in
   let print_pair p =
     match p with
-    | Core.Pair (a, b) -> print_sexp a; print_string ". "; print_sexp b
+    | Core.Pair (a, b) -> print_val a; print_string ". "; print_val b
     | _ -> raise Core.ThisCan'tHappenError
   in
   match e with
@@ -111,9 +111,9 @@ let rec print_sexp e =
 let rec repl stm env =
   print_string "> ";
   flush stdout;
-  let sexp = read_sexp stm in
-  let result, env' = Core.eval_sexp sexp env in
-  print_sexp result; print_newline (); repl stm env'
+  let ast = Core.build_ast (read_sexp stm) in
+  let result, env' = Core.eval ast env in
+  print_val result; print_newline (); repl stm env'
 
 let main =
   let stm = { chr = []; line_num = 1; chan = stdin } in
