@@ -52,12 +52,12 @@ let rec read_sexp stm =
   let is_symstartchar =
     let is_alpha = function 'A' .. 'Z' | 'a' .. 'z' -> true | _ -> false in
     function
-    | '*' | '/' | '>' | '<' | '=' | '?' | '!' | '-' | '+' -> true
+    | '*' | '/' | '>' | '<' | '=' | '?' | '!' | '-' | '+' | ':' -> true
     | c -> is_alpha c
   in
   let rec read_symbol () =
     let is_delimiter = function
-      | '(' | ')' | '|' | '{' | '}' | ';' -> true
+      | '(' | ')' | '|' | '{' | '}' | '[' | ']' | ';' -> true
       | c when c = '"' -> true
       | c -> is_white c
     in
@@ -68,20 +68,57 @@ let rec read_sexp stm =
       let* rest = read_symbol () in
       Lwt.return (string_of_char nc ^ rest)
   in
-  let rec read_list stm =
+  let rec read_list stm close_char =
     let* () = eat_whitespace stm in
     let* c = read_char stm in
-    if c = ')' then
-      Lwt.return Nil
+    if c = close_char then
+      Lwt.return []
     else (
       unread_char stm c;
       let* car = read_sexp stm in
-      let* cdr = read_list stm in
-      Lwt.return (Pair (car, cdr)))
+      let* cdr = read_list stm close_char in
+      Lwt.return (car :: cdr))
   in
   let rec eat_comment stm =
     let* c = read_char stm in
     if c = '\n' then Lwt.return () else eat_comment stm
+  in
+  let rec read_map stm =
+    let* () = eat_whitespace stm in
+    let* c = read_char stm in
+    if c = '}' then
+      Lwt.return (Map [])
+    else (
+      unread_char stm c;
+      let* k = read_sexp stm in
+      let* () = eat_whitespace stm in
+      let* v = read_sexp stm in
+      let* rest = read_map stm in
+      match rest with
+      | Map m -> Lwt.return (Map ((k, v) :: m))
+      | _ -> raise ThisCan'tHappenError)
+  in
+  let read_string stm =
+    let rec read_chars acc =
+      let* c = read_char stm in
+      if c = '"' then
+        Lwt.return
+          (String (String.concat "" (List.rev (List.map string_of_char acc))))
+      else if c = '\\' then
+        let* nc = read_char stm in
+        let esc =
+          match nc with
+          | 'n' -> '\n'
+          | 't' -> '\t'
+          | '\\' -> '\\'
+          | '"' -> '"'
+          | c -> c
+        in
+        read_chars (esc :: acc)
+      else
+        read_chars (c :: acc)
+    in
+    read_chars []
   in
   let* () = eat_whitespace stm in
   let* c = read_char stm in
@@ -90,11 +127,29 @@ let rec read_sexp stm =
     read_sexp stm
   else if is_symstartchar c then
     let* sym = read_symbol () in
-    Lwt.return (Symbol (string_of_char c ^ sym))
+    if c = ':' then
+      Lwt.return (Keyword sym)
+    else
+      Lwt.return (Symbol (string_of_char c ^ sym))
+  else if c = '~' then
+    let* nc = read_char stm in
+    if is_digit nc || nc = '~' then
+      read_fixnum ("-" ^ Char.escaped (if nc = '~' then '~' else nc))
+    else (
+      unread_char stm nc;
+      Lwt.return (Symbol (string_of_char c)))
   else if c = '(' then
-    read_list stm
-  else if is_digit c || c = '~' then
-    read_fixnum (Char.escaped (if c = '~' then '-' else c))
+    let* elems = read_list stm ')' in
+    Lwt.return (List.fold_right (fun car cdr -> Pair (car, cdr)) elems Nil)
+  else if c = '[' then
+    let* elems = read_list stm ']' in
+    Lwt.return (Vector elems)
+  else if c = '{' then
+    read_map stm
+  else if c = '"' then
+    read_string stm
+  else if is_digit c then
+    read_fixnum (Char.escaped c)
   else if c = '#' then
     let* x = read_char stm in
     match x with

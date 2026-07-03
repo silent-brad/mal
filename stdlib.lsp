@@ -10,16 +10,13 @@
 (val newline (itoc 10))
 (val space (itoc 32))
 
-; This is pretty awkward looking because we have no other way to sequence
-; operations. We have no begin, nothing.
 (fn println (s)
-  (let ((ok (print s)))
+  (let [ok (print s)]
     (print newline)))
 
-; This is less awkward because we actually use ic and c.
 (fn getline ()
-  (let* ((ic (getchar))
-         (c (itoc ic)))
+  (let [ic (getchar)
+        c (itoc ic)]
     (if (or (eq c newline) (eq ic ~1))
       empty-symbol
       (cat c (getline)))))
@@ -56,8 +53,8 @@
     ls
     (if (null? (cdr ls))
       ls
-      (let* ((size (length ls))
-             (half (/ size 2))
-             (first (take half ls))
-             (second (drop half ls)))
+      (let [size (length ls)
+            half (/ size 2)
+            first (take half ls)
+            second (drop half ls)]
         (merge (mergesort first) (mergesort second))))))

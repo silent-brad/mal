@@ -24,14 +24,13 @@ type lobject =
   | Primitive of string * (lobject list -> lobject)
   | Quote of value
   | Closure of name list * exp * value env
+  | String of string
+  | Vector of lobject list
+  | Map of (lobject * lobject) list
+  | Keyword of string
 
 and value = lobject
 and name = string
-
-and let_kind =
-  | LET
-  | LETSTAR
-  | LETREC
 
 and exp =
   | Literal of value
@@ -42,8 +41,9 @@ and exp =
   | Apply of exp * exp
   | Call of exp * exp list
   | Lambda of name list * exp
-  | Let of let_kind * (name * exp) list * exp
+  | Let of (name * exp) list * exp
   | Defexp of def
+  | Do of exp list
 
 and def =
   | Val of name * exp

@@ -22,6 +22,15 @@ let rec string_val e =
   | Primitive (name, _) -> "#<primitive:" ^ name ^ ">"
   | Quote v -> "'" ^ string_val v
   | Closure (ns, e, _) -> "#<closure>"
+  | String s -> "\"" ^ s ^ "\""
+  | Vector v -> "[" ^ String.concat " " (List.map string_val v) ^ "]"
+  | Map m ->
+    "{"
+    ^ String.concat
+        " "
+        (List.map (fun (k, v) -> string_val k ^ " " ^ string_val v) m)
+    ^ "}"
+  | Keyword k -> ":" ^ k
 
 let spacesep ns = String.concat " " ns
 
@@ -39,11 +48,11 @@ let rec string_exp =
     let string_es = String.concat " " (List.map string_exp es) in
     "(" ^ string_exp f ^ " " ^ string_es ^ ")"
   | Lambda (ns, e) -> "#<lambda>"
-  | Let (kind, bs, e) ->
-    let str =
-      match kind with LET -> "let" | LETSTAR -> "let*" | LETREC -> "letrec"
-    in
+  | Let (bs, e) ->
     let bindings = spacesep (List.map string_of_binding bs) in
-    "(" ^ str ^ " (" ^ bindings ^ ") " ^ string_exp e ^ ")"
+    "(let (" ^ bindings ^ ") " ^ string_exp e ^ ")"
   | Defexp (Val (n, e)) -> "(val " ^ n ^ " " ^ string_exp e ^ ")"
   | Defexp (Exp e) -> string_exp e
+  | Do es ->
+    let string_es = String.concat " " (List.map string_exp es) in
+    "(do " ^ string_es ^ ")"

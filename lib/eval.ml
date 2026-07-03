@@ -10,14 +10,19 @@ let rec evalexp exp env =
     | Closure (ns, e, clenv) -> evalexp e (bindlist ns vs clenv)
     | _ -> raise @@ TypeError "(apply prim '(args)) or (prim args)"
   in
-  let rec unzip ls = List.map fst ls, List.map snd ls in
   let rec ev = function
     | Literal (Quote e) -> e
     | Literal l -> l
     | Var n -> lookup (n, env)
     | If (c, t, f) when ev c = Boolean true -> ev t
     | If (c, t, f) when ev c = Boolean false -> ev f
+    | If (c, t, f) when ev c = Nil -> ev f
     | If _ -> raise @@ TypeError "(if bool e1 e2)"
+    | Do [] -> Nil
+    | Do [ e ] -> ev e
+    | Do (e :: es) ->
+      let _ = ev e in
+      ev (Do es)
     | And (c1, c2) ->
       (match ev c1, ev c2 with
        | Boolean v1, Boolean v2 -> Boolean (v1 && v2)
@@ -30,18 +35,9 @@ let rec evalexp exp env =
     | Call (Var "env", []) -> env_to_val env
     | Call (e, es) -> evalapply (ev e) (List.map ev es)
     | Lambda (ns, e) -> Closure (ns, e, env)
-    | Let (LET, bs, body) ->
-      let evbinding (n, e) = n, ref (Some (ev e)) in
-      evalexp body (extend (List.map evbinding bs) env)
-    | Let (LETSTAR, bs, body) ->
+    | Let (bs, body) ->
       let evbinding acc (n, e) = bind (n, evalexp e acc, acc) in
-      evalexp body (extend (List.fold_left evbinding [] bs) env)
-    | Let (LETREC, bs, body) ->
-      let names, values = unzip bs in
-      let env' = bindloclist names (List.map mkloc values) env in
-      let updates = List.map (fun (n, e) -> n, Some (evalexp e env')) bs in
-      let () = List.iter (fun (n, v) -> List.assoc n env' := v) updates in
-      evalexp body env'
+      evalexp body (List.fold_left evbinding env bs)
     | Defexp d -> raise ThisCan'tHappenError
   in
   try ev exp with
@@ -53,8 +49,11 @@ let rec evalexp exp env =
 let evaldef def env =
   match def with
   | Val (n, e) ->
-    let v = evalexp e env in
-    v, bind (n, v, env)
+    let loc = mkloc () in
+    let env' = (n, loc) :: env in
+    let v = evalexp e env' in
+    loc := Some v;
+    v, env'
   | Exp e -> evalexp e env, env
 
 let rec eval ast env =
@@ -127,6 +126,41 @@ let basis =
     | _ -> raise @@ TypeError "(cat sym syn)"
   in
   let newprim acc (name, func) = bind (name, Primitive (name, func), acc) in
+  let prim_vector = function args -> Vector args in
+  let prim_map = function
+    | args ->
+      let rec pairs = function
+        | [] -> []
+        | a :: b :: rest -> (a, b) :: pairs rest
+        | _ -> raise @@ TypeError "(map k0 v0 k1 v1 ...)"
+      in
+      Map (pairs args)
+  in
+  let prim_get = function
+    | [ Map m; key ] -> (try List.assoc key m with Not_found -> Nil)
+    | [ Vector v; Fixnum i ] ->
+      if i >= 0 && i < List.length v then List.nth v i else Nil
+    | _ -> raise @@ TypeError "(get coll key)"
+  in
+  let prim_assoc = function
+    | [ Map m; key; value ] -> Map ((key, value) :: m)
+    | _ -> raise @@ TypeError "(assoc m key value)"
+  in
+  let prim_stringp = function
+    | [ String _ ] -> Boolean true
+    | [ _ ] -> Boolean false
+    | _ -> raise @@ TypeError "(string? val)"
+  in
+  let prim_vectorp = function
+    | [ Vector _ ] -> Boolean true
+    | [ _ ] -> Boolean false
+    | _ -> raise @@ TypeError "(vector? val)"
+  in
+  let prim_mapp = function
+    | [ Map _ ] -> Boolean true
+    | [ _ ] -> Boolean false
+    | _ -> raise @@ TypeError "(map? val)"
+  in
   List.fold_left
     newprim
     []
@@ -148,4 +182,11 @@ let basis =
     ; "print", prim_print
     ; "itoc", prim_itoc
     ; "cat", prim_cat
+    ; "vector", prim_vector
+    ; "map", prim_map
+    ; "get", prim_get
+    ; "assoc", prim_assoc
+    ; "string?", prim_stringp
+    ; "vector?", prim_vectorp
+    ; "map?", prim_mapp
     ]
