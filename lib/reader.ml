@@ -136,11 +136,16 @@ let rec read_sexp stm =
   else if is_symstartchar c then
     let* sym = read_symbol () in
     let s = string_of_char c ^ sym in
-    match c, s with
-    | ':', _ -> Lwt.return @@ Keyword sym
-    | _, "true" -> Lwt.return (Boolean true)
-    | _, "false" -> Lwt.return (Boolean false)
-    | _, "nil" -> Lwt.return Nil
+    match s with
+    | _ when String.starts_with s ~prefix:"::" ->
+      let name = String.sub s 2 (String.length s - 2) in
+      Lwt.return @@ Keyword (!Types.current_ns ^ "/" ^ name)
+    | _ when String.starts_with s ~prefix:":" ->
+      let name = String.sub s 1 (String.length s - 1) in
+      Lwt.return @@ Keyword name
+    | "true" -> Lwt.return (Boolean true)
+    | "false" -> Lwt.return (Boolean false)
+    | "nil" -> Lwt.return Nil
     | _ -> Lwt.return (Symbol s)
   else if c = '~' then
     let* e = read_sexp stm in

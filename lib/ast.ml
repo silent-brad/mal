@@ -90,6 +90,7 @@ let rec build_ast sexp =
      | [ Symbol "or"; c1; c2 ] -> Or (build_ast c1, build_ast c2)
      | [ Symbol "quote"; e ] -> Literal (Quote e)
      | [ Symbol "quasiquote"; e ] -> build_ast (Quote (quasiquote e))
+     | Symbol "do" :: body -> Do (List.map build_ast body)
      | [ Symbol "def"; Symbol n; e ] -> Defexp (Val (n, build_ast e))
      | Symbol "let" :: bindings :: body when body <> [] ->
        let mkbinding = function

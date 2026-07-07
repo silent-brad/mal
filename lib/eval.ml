@@ -69,35 +69,36 @@ let rec destructure pat value env =
   match pat with
   | PName n -> bind (n, value, env)
   | PSeq (ps, rest) ->
-    let vals =
-      match value with
-      | Vector v -> v
-      | Pair _ when is_list value -> pair_to_list value
-      | Nil ->
-        if ps = [] && rest = None then
-          []
-        else
-          raise @@ TypeError "cannot destructure nil"
-      | _ -> raise @@ TypeError "cannot destructure non-sequence"
-    in
-    let rec bind_seq env ps vals =
-      match ps, vals with
-      | [], remaining ->
-        (match rest with
-         | None ->
-           if remaining <> [] then
-             raise @@ TypeError "too many values to destructure"
-           else
-             env
-         | Some r ->
-           let rest_list =
-             List.fold_right (fun x acc -> Pair (x, acc)) remaining Nil
-           in
-           destructure r rest_list env)
-      | p :: ps, v :: vs -> bind_seq (destructure p v env) ps vs
-      | _ -> raise @@ TypeError "not enough values to destructure"
-    in
-    bind_seq env ps vals
+    if value = Nil then (
+      let env' =
+        List.fold_left (fun env p -> destructure p Nil env) env ps
+      in
+      match rest with Some r -> destructure r Nil env' | None -> env')
+    else (
+      let vals =
+        match value with
+        | Vector v -> v
+        | Pair _ when is_list value -> pair_to_list value
+        | _ -> raise @@ TypeError "cannot destructure non-sequence"
+      in
+      let rec bind_seq env ps vals =
+        match ps, vals with
+        | [], remaining ->
+          (match rest with
+           | None ->
+             if remaining <> [] then
+               raise @@ TypeError "too many values to destructure"
+             else
+               env
+           | Some r ->
+             let rest_list =
+               List.fold_right (fun x acc -> Pair (x, acc)) remaining Nil
+             in
+             destructure r rest_list env)
+        | p :: ps, v :: vs -> bind_seq (destructure p v env) ps vs
+        | _ -> raise @@ TypeError "not enough values to destructure"
+      in
+      bind_seq env ps vals)
   | PMap m ->
     (match value with
      | Map map_vals ->
@@ -158,10 +159,9 @@ let rec evalexp exp env =
     | Literal (Quote e) -> e
     | Literal l -> l
     | Var n -> lookup (n, env)
-    | If (c, t, f) when ev c = Boolean true -> ev t
     | If (c, t, f) when ev c = Boolean false -> ev f
     | If (c, t, f) when ev c = Nil -> ev f
-    | If _ -> raise @@ TypeError "(if bool e1 e2)"
+    | If (c, t, f) -> ev t
     | Do [] -> Nil
     | Do [ e ] -> ev e
     | Do (e :: es) ->
@@ -288,11 +288,38 @@ let basis =
       in
       Map (pairs args)
   in
+  let prim_seq = function
+    | [ Vector v ] -> List.fold_right (fun x acc -> Pair (x, acc)) v Nil
+    | [ (Pair _ as lst) ] when is_list lst -> lst
+    | [ Nil ] -> Nil
+    | _ -> raise @@ TypeError "(seq coll)"
+  in
   let prim_get = function
     | [ Map m; key ] -> (try List.assoc key m with Not_found -> Nil)
     | [ Vector v; Fixnum i ] ->
       if i >= 0 && i < List.length v then List.nth v i else Nil
     | _ -> raise @@ TypeError "(get coll key)"
+  in
+  let prim_nth = function
+    | [ Vector v; Fixnum i ] ->
+      if i >= 0 && i < List.length v then List.nth v i else Nil
+    | [ (Pair _ as lst); Fixnum i ] when is_list lst ->
+      let rec nth n = function
+        | [] -> Nil
+        | x :: _ when n = 0 -> x
+        | _ :: xs -> nth (n - 1) xs
+      in
+      if i >= 0 then nth i (pair_to_list lst) else Nil
+    | [ Vector v; Fixnum i; default ] ->
+      if i >= 0 && i < List.length v then List.nth v i else default
+    | [ (Pair _ as lst); Fixnum i; default ] when is_list lst ->
+      let rec nth n = function
+        | [] -> default
+        | x :: _ when n = 0 -> x
+        | _ :: xs -> nth (n - 1) xs
+      in
+      if i >= 0 then nth i (pair_to_list lst) else default
+    | _ -> raise @@ TypeError "(nth coll index [default])"
   in
   let prim_assoc = function
     | [ Map m; key; value ] -> Map ((key, value) :: m)
@@ -344,7 +371,7 @@ let basis =
     ; "itoc", prim_itoc
     ; "cat", prim_cat
     ; "vector", prim_vector
-    ; "map", prim_map
+    ; "hash-map", prim_map
     ; "get", prim_get
     ; "assoc", prim_assoc
     ; "gensym", prim_gensym
@@ -353,4 +380,16 @@ let basis =
     ; "map?", prim_mapp
     ; ("deref", function [ x ] -> x | _ -> raise @@ TypeError "(deref ref)")
     ; ("set", function args -> Set args)
+    ; "nth", prim_nth
+    ; "seq", prim_seq
+    ; ( "*ns*"
+      , function
+        | [] -> Symbol !current_ns
+        | _ -> raise @@ TypeError "(*ns*)" )
+    ; ( "in-ns"
+      , function
+        | [ Symbol ns ] ->
+          current_ns := ns;
+          Symbol ns
+        | _ -> raise @@ TypeError "(in-ns 'name)" )
     ]

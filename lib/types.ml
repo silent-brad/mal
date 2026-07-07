@@ -6,6 +6,8 @@ exception ThisCan'tHappenError
 exception UnspecifiedValue of string
 exception UniqueError of string
 
+let current_ns = ref "user"
+
 type 'a env = (string * 'a option ref) list
 
 type stream =

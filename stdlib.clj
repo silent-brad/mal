@@ -30,6 +30,18 @@
 (defn null? [xs]
   (= xs '()))
 
+(defn empty? [xs]
+  (null? xs))
+
+(defn not [x]
+  (if x false true))
+
+(defn inc [x]
+  (+ x 1))
+
+(defn dec [x]
+  (- x 1))
+
 (defn length [ls]
   (if (null? ls)
     0
@@ -64,3 +76,23 @@
             first (take half ls)
             second (drop half ls)]
         (merge (mergesort first) (mergesort second))))))
+
+(defn map [f xs]
+  (let [s (seq xs)]
+    (if (null? s)
+      '()
+      (cons (f (car s)) (map f (cdr s))))))
+
+(defn filter [pred xs]
+  (let [s (seq xs)]
+    (if (null? s)
+      '()
+      (if (pred (car s))
+        (cons (car s) (filter pred (cdr s)))
+        (filter pred (cdr s))))))
+
+(defn reduce [f init xs]
+  (let [s (seq xs)]
+    (if (null? s)
+      init
+      (reduce f (f init (car s)) (cdr s)))))
