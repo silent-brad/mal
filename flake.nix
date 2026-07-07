@@ -1,5 +1,5 @@
 {
-  description = "clj-in-ml";
+  description = "ml_clj";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
