@@ -14,7 +14,7 @@ let stdlib =
       (function End_of_file -> Lwt.return env | e -> Lwt.fail e)
   in
   let stm_text =
-    In_channel.with_open_text "stdlib.lsp" In_channel.input_all
+    In_channel.with_open_text "stdlib.clj" In_channel.input_all
   in
   let stm = mkstringstream stm_text in
   Lwt_main.run (slurp stm basis)
