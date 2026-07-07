@@ -1,4 +1,4 @@
-open Mal.Core
+open Clj_in_ml.Core
 open Lwt.Syntax
 
 let rec repl stm env =

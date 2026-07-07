@@ -1,5 +1,5 @@
 {
-  description = "Make a Lisp in OCaml";
+  description = "clj-in-ml";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -28,6 +28,8 @@
             ocamlPackages.ocamlformat
             ocamlPackages.utop
             opam
+
+            cljfmt
           ];
 
           shellHook = ''

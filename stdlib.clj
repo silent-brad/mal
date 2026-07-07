@@ -1,51 +1,51 @@
-(fn o (f g) (lambda (x) (f (g x))))
-(val caar (o car car))
-(val cadr (o car cdr))
-(val caddr (o cadr cdr))
-(val cadar (o car (o cdr car)))
-(val caddar (o car (o cdr (o cdr car))))
+(defn o [f g] (fn [x] (f (g x))))
+(def caar (o car car))
+(def cadr (o car cdr))
+(def caddr (o cadr cdr))
+(def cadar (o car (o cdr car)))
+(def caddar (o car (o cdr (o cdr car))))
 
-(val cons pair)
+(def cons pair)
 
-(val newline (itoc 10))
-(val space (itoc 32))
+(def newline (itoc 10))
+(def space (itoc 32))
 
-(fn println (s)
+(defn println [s]
   (let [ok (print s)]
     (print newline)))
 
-(macro when (cond body)
+(defmacro when [cond body]
   `(if ,cond ,body))
 
-(macro unless (cond body)
+(defmacro unless [cond body]
   `(if ,cond nil ,body))
 
-(fn getline ()
+(defn getline []
   (let [ic (getchar)
         c (itoc ic)]
-    (if (or (eq c newline) (eq ic ~1))
+    (if (or (= c newline) (= ic -1))
       empty-symbol
       (cat c (getline)))))
 
-(fn null? (xs)
-  (eq xs '()))
+(defn null? [xs]
+  (= xs '()))
 
-(fn length (ls)
+(defn length [ls]
   (if (null? ls)
     0
     (+ 1 (length (cdr ls)))))
 
-(fn take (n ls)
+(defn take [n ls]
   (if (or (< n 1) (null? ls))
     '()
     (cons (car ls) (take (- n 1) (cdr ls)))))
 
-(fn drop (n ls)
+(defn drop [n ls]
   (if (or (< n 1) (null? ls))
     ls
     (drop (- n 1) (cdr ls))))
 
-(fn merge (xs ys)
+(defn merge [xs ys]
   (if (null? xs)
     ys
     (if (null? ys)
@@ -54,7 +54,7 @@
         (cons (car xs) (merge (cdr xs) ys))
         (cons (car ys) (merge xs (cdr ys)))))))
 
-(fn mergesort (ls)
+(defn mergesort [ls]
   (if (null? ls)
     ls
     (if (null? (cdr ls))

@@ -52,7 +52,7 @@ let rec read_sexp stm =
   let is_symstartchar =
     let is_alpha = function 'A' .. 'Z' | 'a' .. 'z' -> true | _ -> false in
     function
-    | '*' | '/' | '>' | '<' | '=' | '?' | '!' | '-' | '+' | ':' -> true
+    | '*' | '/' | '>' | '<' | '=' | '?' | '!' | '+' | ':' | '%' | '&' -> true
     | c -> is_alpha c
   in
   let rec read_symbol () =
@@ -125,19 +125,26 @@ let rec read_sexp stm =
   if c = ';' then
     let* () = eat_comment stm in
     read_sexp stm
-  else if is_symstartchar c then
-    let* sym = read_symbol () in
-    if c = ':' then
-      Lwt.return @@ Keyword sym
-    else
-      Lwt.return @@ Symbol (string_of_char c ^ sym)
-  else if c = '~' then
+  else if c = '-' then
     let* nc = read_char stm in
-    if is_digit nc || nc = '~' then
-      read_fixnum ("-" ^ Char.escaped (if nc = '~' then '~' else nc))
+    if is_digit nc then
+      read_fixnum ("-" ^ Char.escaped nc)
     else (
       unread_char stm nc;
-      Lwt.return @@ Symbol (string_of_char c))
+      let* sym = read_symbol () in
+      Lwt.return (Symbol (string_of_char c ^ sym)))
+  else if is_symstartchar c then
+    let* sym = read_symbol () in
+    let s = string_of_char c ^ sym in
+    match c, s with
+    | ':', _ -> Lwt.return @@ Keyword sym
+    | _, "true" -> Lwt.return (Boolean true)
+    | _, "false" -> Lwt.return (Boolean false)
+    | _, "nil" -> Lwt.return Nil
+    | _ -> Lwt.return (Symbol s)
+  else if c = '~' then
+    let* e = read_sexp stm in
+    Lwt.return @@ Pair (Symbol "unquote", Pair (e, Nil))
   else if c = '`' then
     let* e = read_sexp stm in
     Lwt.return @@ Pair (Symbol "quasiquote", Pair (e, Nil))
@@ -150,6 +157,9 @@ let rec read_sexp stm =
       unread_char stm nc;
       let* e = read_sexp stm in
       Lwt.return @@ Pair (Symbol "unquote", Pair (e, Nil)))
+  else if c = '@' then
+    let* e = read_sexp stm in
+    Lwt.return @@ Pair (Symbol "deref", Pair (e, Nil))
   else if c = '(' then
     let* elems = read_list stm ')' in
     Lwt.return @@ List.fold_right (fun car cdr -> Pair (car, cdr)) elems Nil
@@ -165,10 +175,39 @@ let rec read_sexp stm =
   else if c = '#' then
     let* x = read_char stm in
     match x with
-    | 't' -> Lwt.return (Boolean true)
-    | 'f' -> Lwt.return (Boolean false)
-    | x ->
-      Lwt.fail @@ SyntaxError ("Invalid boolean literal " ^ Char.escaped x)
+    | '(' ->
+      unread_char stm x;
+      let* body = read_sexp stm in
+      let rec collect_max n = function
+        | Symbol "%" -> max n 1
+        | Symbol s when String.length s > 1 && s.[0] = '%' ->
+          (try
+             let i = int_of_string (String.sub s 1 (String.length s - 1)) in
+             max n i
+           with
+           | _ -> n)
+        | Pair (a, b) -> collect_max (collect_max n a) b
+        | _ -> n
+      in
+      let max_n = collect_max 0 body in
+      let args =
+        List.init max_n (fun i -> Symbol ("%" ^ string_of_int (i + 1)))
+      in
+      let rec rewrite = function
+        | Symbol "%" -> Symbol "%1"
+        | Pair (a, b) -> Pair (rewrite a, rewrite b)
+        | other -> other
+      in
+      let body' = rewrite body in
+      Lwt.return (Pair (Symbol "fn", Pair (Vector args, Pair (body', Nil))))
+    | '{' ->
+      let* elems = read_list stm '}' in
+      Lwt.return (Set elems)
+    | '_' ->
+      let* _ = read_sexp stm in
+      read_sexp stm
+    | _ ->
+      Lwt.fail @@ SyntaxError ("Invalid dispatch macro: #" ^ Char.escaped x)
   else if c = '\'' then
     let* e = read_sexp stm in
     Lwt.return (Quote e)

@@ -14,16 +14,17 @@ let rec string_val e =
   in
   match e with
   | Fixnum v -> string_of_int v
-  | Boolean b -> if b then "#t" else "#f"
+  | Boolean b -> if b then "true" else "false"
   | Symbol s -> s
   | Nil -> "nil"
   | Pair (a, b) ->
     "(" ^ (if Env.is_list e then string_list e else string_pair e) ^ ")"
   | Primitive (name, _) -> "#<primitive:" ^ name ^ ">"
   | Quote v -> "'" ^ string_val v
-  | Closure (ns, e, _) -> "#<closure>"
+  | Closure (ns, rest, e, _) -> "#<closure>"
   | String s -> "\"" ^ s ^ "\""
   | Vector v -> "[" ^ String.concat " " (List.map string_val v) ^ "]"
+  | Set s -> "#{" ^ String.concat " " (List.map string_val s) ^ "}"
   | Map m ->
     "{"
     ^ String.concat
@@ -35,8 +36,22 @@ let rec string_val e =
 
 let spacesep ns = String.concat " " ns
 
+let rec string_pattern = function
+  | PName n -> n
+  | PSeq (ps, None) ->
+    "[" ^ String.concat " " (List.map string_pattern ps) ^ "]"
+  | PSeq (ps, Some r) ->
+    "["
+    ^ String.concat " " (List.map string_pattern ps)
+    ^ " & "
+    ^ string_pattern r
+    ^ "]"
+  | PMap _ -> "{...}"
+
 let rec string_exp =
-  let string_of_binding (n, e) = "(" ^ n ^ " " ^ string_exp e ^ ")" in
+  let string_of_binding (pat, e) =
+    "(" ^ string_pattern pat ^ " " ^ string_exp e ^ ")"
+  in
   function
   | Literal e -> string_val e
   | Var n -> n
@@ -48,11 +63,11 @@ let rec string_exp =
   | Call (f, es) ->
     let string_es = String.concat " " (List.map string_exp es) in
     "(" ^ string_exp f ^ " " ^ string_es ^ ")"
-  | Lambda (ns, e) -> "#<lambda>"
+  | Lambda (ns, rest, e) -> "#<lambda>"
   | Let (bs, e) ->
     let bindings = spacesep (List.map string_of_binding bs) in
     "(let (" ^ bindings ^ ") " ^ string_exp e ^ ")"
-  | Defexp (Val (n, e)) -> "(val " ^ n ^ " " ^ string_exp e ^ ")"
+  | Defexp (Val (n, e)) -> "(def " ^ n ^ " " ^ string_exp e ^ ")"
   | Defexp (Exp e) -> string_exp e
   | Do es ->
     let string_es = String.concat " " (List.map string_exp es) in

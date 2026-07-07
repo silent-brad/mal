@@ -1,4 +1,4 @@
 (executable
- (public_name mal)
+ (public_name clj-in-ml)
  (name main)
- (libraries mal))
+ (libraries clj-in-ml))

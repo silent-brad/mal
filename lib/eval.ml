@@ -29,12 +29,13 @@ let rec macro_expand env sexp =
     let expanded = qq e in
     macro_expand env expanded
   | Pair (Symbol "macro", _) -> sexp
+  | Pair (Symbol "defmacro", _) -> sexp
   | Pair (Symbol name, args) when is_list args ->
     (try
        match lookup (name, env) with
-       | Macro (ns, template, menv) ->
+       | Macro (ns, rest, template, menv) ->
          let arg_list = pair_to_list args in
-         let expanded_template = subst ns arg_list template in
+         let expanded_template = subst ns rest arg_list template in
          let result = macro_expand menv expanded_template in
          macro_expand env result
        | _ -> Pair (Symbol name, macro_expand env args)
@@ -43,12 +44,20 @@ let rec macro_expand env sexp =
   | Pair (a, b) -> Pair (macro_expand env a, macro_expand env b)
   | other -> other
 
-and subst names args template =
+and subst names rest args template =
   match names, args with
   | [], [] -> template
   | n :: ns, a :: args' ->
     let template' = subst1 n a template in
-    subst ns args' template'
+    subst ns rest args' template'
+  | [], args' ->
+    (match rest with
+     | Some r ->
+       subst1
+         r
+         (List.fold_right (fun x acc -> Pair (x, acc)) args' Nil)
+         template
+     | None -> raise (TypeError "macro arity mismatch"))
   | _ -> raise (TypeError "macro arity mismatch")
 
 and subst1 name replacement = function
@@ -56,11 +65,93 @@ and subst1 name replacement = function
   | Pair (a, b) -> Pair (subst1 name replacement a, subst1 name replacement b)
   | other -> other
 
+let rec destructure pat value env =
+  match pat with
+  | PName n -> bind (n, value, env)
+  | PSeq (ps, rest) ->
+    let vals =
+      match value with
+      | Vector v -> v
+      | Pair _ when is_list value -> pair_to_list value
+      | Nil ->
+        if ps = [] && rest = None then
+          []
+        else
+          raise @@ TypeError "cannot destructure nil"
+      | _ -> raise @@ TypeError "cannot destructure non-sequence"
+    in
+    let rec bind_seq env ps vals =
+      match ps, vals with
+      | [], remaining ->
+        (match rest with
+         | None ->
+           if remaining <> [] then
+             raise @@ TypeError "too many values to destructure"
+           else
+             env
+         | Some r ->
+           let rest_list =
+             List.fold_right (fun x acc -> Pair (x, acc)) remaining Nil
+           in
+           destructure r rest_list env)
+      | p :: ps, v :: vs -> bind_seq (destructure p v env) ps vs
+      | _ -> raise @@ TypeError "not enough values to destructure"
+    in
+    bind_seq env ps vals
+  | PMap m ->
+    (match value with
+     | Map map_vals ->
+       let env' =
+         match List.assoc_opt (Keyword "keys") m with
+         | Some (PSeq (ps, _)) ->
+           List.fold_left
+             (fun env -> function
+                | PName n ->
+                  let k = Keyword n in
+                  let v =
+                    try List.assoc k map_vals with Not_found -> Nil
+                  in
+                  bind (n, v, env)
+                | _ ->
+                  raise @@ TypeError ":keys pattern must contain symbols")
+             env
+             ps
+         | Some _ -> raise @@ TypeError ":keys must be followed by a vector"
+         | None -> env
+       in
+       List.fold_left
+         (fun env (k, pat) ->
+            if k = Keyword "keys" then
+              env
+            else (
+              let v = try List.assoc k map_vals with Not_found -> Nil in
+              destructure pat v env))
+         env'
+         m
+     | _ -> raise @@ TypeError "cannot destructure non-map")
+
 let rec evalexp exp env =
   let evalapply f vs =
     match f with
     | Primitive (_, f) -> f vs
-    | Closure (ns, e, clenv) -> evalexp e (bindlist ns vs clenv)
+    | Closure (params, rest, e, clenv) ->
+      let rec bind_args params env vals =
+        match params, vals with
+        | [], [] ->
+          (match rest with None -> env | Some r -> destructure r Nil env)
+        | [], remaining ->
+          (match rest with
+           | None -> raise @@ TypeError "too many arguments"
+           | Some r ->
+             let rest_list =
+               List.fold_right (fun x acc -> Pair (x, acc)) remaining Nil
+             in
+             destructure r rest_list env)
+        | p :: ps, v :: vs -> bind_args ps (destructure p v env) vs
+        | _ -> raise @@ TypeError "arity mismatch"
+      in
+      let env' = bind_args params clenv vs in
+      evalexp e env'
     | _ -> raise @@ TypeError "(apply prim '(args)) or (prim args)"
   in
   let rec ev = function
@@ -87,9 +178,12 @@ let rec evalexp exp env =
     | Apply (fn, e) -> evalapply (ev fn) (pair_to_list (ev e))
     | Call (Var "env", []) -> env_to_val env
     | Call (e, es) -> evalapply (ev e) (List.map ev es)
-    | Lambda (ns, e) -> Closure (ns, e, env)
+    | Lambda (params, rest, e) -> Closure (params, rest, e, env)
     | Let (bs, body) ->
-      let evbinding acc (n, e) = bind (n, evalexp e acc, acc) in
+      let evbinding acc (pat, e) =
+        let v = evalexp e acc in
+        destructure pat v acc
+      in
       evalexp body (List.fold_left evbinding env bs)
     | Defexp d -> raise ThisCan'tHappenError
   in
@@ -150,7 +244,7 @@ let basis =
   in
   let prim_eq = function
     | [ a; b ] -> Boolean (a = b)
-    | _ -> raise @@ TypeError "(eq a b)"
+    | _ -> raise @@ TypeError "(= a b)"
   in
   let prim_symp = function
     | [ Symbol _ ] -> Boolean true
@@ -236,12 +330,13 @@ let basis =
     ; numprim "/" ( / )
     ; cmpprim "<" ( < )
     ; cmpprim ">" ( > )
-    ; cmpprim "=" ( = )
     ; "list", prim_list
     ; "pair", prim_pair
     ; "car", prim_car
     ; "cdr", prim_cdr
-    ; "eq", prim_eq
+    ; "first", prim_car
+    ; "rest", prim_cdr
+    ; "=", prim_eq
     ; "atom?", prim_atomp
     ; "sym?", prim_symp
     ; "getchar", prim_getchar
@@ -256,4 +351,6 @@ let basis =
     ; "string?", prim_stringp
     ; "vector?", prim_vectorp
     ; "map?", prim_mapp
+    ; ("deref", function [ x ] -> x | _ -> raise @@ TypeError "(deref ref)")
+    ; ("set", function args -> Set args)
     ]
