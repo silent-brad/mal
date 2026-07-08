@@ -1,5 +1,7 @@
 open Types
 
+let string_of_char c = String.make 1 c
+
 let rec lookup = function
   | n, [] -> raise @@ NotFound n
   | n, (n', v) :: _ when n = n' ->

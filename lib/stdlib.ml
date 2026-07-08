@@ -2,6 +2,7 @@ open Types
 open Eval
 open Ast
 open Reader
+open Primitive
 open Lwt.Syntax
 
 let stdlib =

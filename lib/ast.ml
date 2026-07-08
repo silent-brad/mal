@@ -6,34 +6,16 @@ let rec assert_unique = function
   | x :: xs ->
     if List.mem x xs then raise @@ UniqueError x else assert_unique xs
 
-let rec build_pattern = function
-  | Symbol s -> PName s
-  | Vector v -> build_seq_pattern v
-  | Pair _ as p when is_list p ->
-    let v = pair_to_list p in
-    build_seq_pattern v
-  | Map m -> PMap (List.map (fun (k, v) -> k, build_pattern v) m)
-  | _ -> raise @@ TypeError "invalid pattern"
-
-and build_seq_pattern elems =
-  let rec split acc = function
-    | [] -> List.rev acc, None
-    | Symbol "&" :: [ rest ] -> List.rev acc, Some (build_pattern rest)
-    | Symbol "&" :: _ ->
-      raise
-      @@ TypeError
-           "invalid pattern: & must be followed by exactly one binding"
-    | x :: xs -> split (build_pattern x :: acc) xs
+let parse_params raw err =
+  let rec split = function
+    | [] -> [], None
+    | "&" :: [ rest ] -> [], Some rest
+    | "&" :: _ -> err ()
+    | x :: xs ->
+      let args, r = split xs in
+      x :: args, r
   in
-  let fixed, rest = split [] elems in
-  PSeq (fixed, rest)
-
-let rec pattern_names = function
-  | PName n -> [ n ]
-  | PSeq (ps, rest) ->
-    let names = List.concat (List.map pattern_names ps) in
-    (match rest with None -> names | Some r -> pattern_names r @ names)
-  | PMap m -> List.concat (List.map (fun (_, p) -> pattern_names p) m)
+  split raw
 
 let rec build_ast sexp =
   let rec quasiquote = function
@@ -61,17 +43,6 @@ let rec build_ast sexp =
     | Pair (cond, Pair (res, Nil)) :: condpairs ->
       If (build_ast cond, build_ast res, cond_to_if condpairs)
     | _ -> raise @@ TypeError "(cond c0 c1 c2 c3 ...)"
-  in
-  let parse_params raw err =
-    let rec split = function
-      | [] -> [], None
-      | "&" :: [ rest ] -> [], Some rest
-      | "&" :: _ -> err ()
-      | x :: xs ->
-        let args, r = split xs in
-        x :: args, r
-    in
-    split raw
   in
   match sexp with
   | Primitive _ | Closure _ | Macro _ -> raise ThisCan'tHappenError
@@ -127,14 +98,14 @@ let rec build_ast sexp =
      | [ Symbol "def"; Symbol n; e ] -> Defexp (Val (n, build_ast e))
      | Symbol "let" :: bindings :: body when body <> [] ->
        let mkbinding = function
-         | Pair (pat, Pair (e, Nil)) -> build_pattern pat, build_ast e
+         | Pair (pat, Pair (e, Nil)) -> Pattern.build pat, build_ast e
          | _ -> raise @@ TypeError "(let bindings ...body)"
        in
        let mkbinding_vec bs =
          let rec pairup = function
            | [] -> []
            | pat :: e :: rest ->
-             (build_pattern pat, build_ast e) :: pairup rest
+             (Pattern.build pat, build_ast e) :: pairup rest
            | _ -> raise @@ TypeError "(let [pattern val ...] body)"
          in
          pairup bs
@@ -147,7 +118,7 @@ let rec build_ast sexp =
          | _ -> raise @@ TypeError "(let bindings ...body)"
        in
        let all_names =
-         List.concat (List.map (fun (pat, _) -> pattern_names pat) bindings)
+         List.concat (List.map (fun (pat, _) -> Pattern.names pat) bindings)
        in
        let () = assert_unique all_names in
        let body_ast =
@@ -165,9 +136,9 @@ let rec build_ast sexp =
          | _ when is_list ns -> pair_to_list ns
          | _ -> err ()
        in
-       (match build_seq_pattern raw with
+       (match Pattern.build_seq raw with
         | PSeq (names, rest) ->
-          let () = assert_unique (pattern_names (PSeq (names, rest))) in
+          let () = assert_unique (Pattern.names (PSeq (names, rest))) in
           Lambda (names, rest, build_ast e)
         | _ -> err ())
      | Symbol "fn" :: ns :: body when body <> [] ->
@@ -179,9 +150,9 @@ let rec build_ast sexp =
          | _ when is_list ns -> pair_to_list ns
          | _ -> err ()
        in
-       (match build_seq_pattern raw with
+       (match Pattern.build_seq raw with
         | PSeq (names, rest) ->
-          let () = assert_unique (pattern_names (PSeq (names, rest))) in
+          let () = assert_unique (Pattern.names (PSeq (names, rest))) in
           let body_ast =
             match body with
             | [ e ] -> build_ast e
@@ -198,9 +169,9 @@ let rec build_ast sexp =
          | _ when is_list ns -> pair_to_list ns
          | _ -> err ()
        in
-       (match build_seq_pattern raw with
+       (match Pattern.build_seq raw with
         | PSeq (names, rest) ->
-          let () = assert_unique (pattern_names (PSeq (names, rest))) in
+          let () = assert_unique (Pattern.names (PSeq (names, rest))) in
           let lam = Lambda (names, rest, build_ast e) in
           Defexp (Val (n, lam))
         | _ -> err ())
@@ -215,9 +186,9 @@ let rec build_ast sexp =
          | _ when is_list ns -> pair_to_list ns
          | _ -> err ()
        in
-       (match build_seq_pattern raw with
+       (match Pattern.build_seq raw with
         | PSeq (names, rest) ->
-          let () = assert_unique (pattern_names (PSeq (names, rest))) in
+          let () = assert_unique (Pattern.names (PSeq (names, rest))) in
           let body_ast =
             match body with
             | [ e ] -> build_ast e
