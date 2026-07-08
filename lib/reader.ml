@@ -215,6 +215,6 @@ let rec read_sexp stm =
       Lwt.fail @@ SyntaxError ("Invalid dispatch macro: #" ^ Char.escaped x)
   else if c = '\'' then
     let* e = read_sexp stm in
-    Lwt.return (Quote e)
+    Lwt.return (Pair (Symbol "quote", Pair (e, Nil)))
   else
     Lwt.fail @@ SyntaxError ("Unexpected char " ^ Char.escaped c)

@@ -3,13 +3,13 @@ opam-version: "2.0"
 synopsis: "Simple Clojure interpreter in OCaml"
 authors: ["Brad White"]
 license: "LICENSE"
-homepage: "https://github.com/silent-brad/ml_clj"
-bug-reports: "https://github.com/silent-brad/ml_clj/issues"
+homepage: "https://github.com/silent-brad/cljml"
+bug-reports: "https://github.com/silent-brad/cljml/issues"
 depends: [
   "dune" {>= "3.21"}
   "ocaml"
   "lwt"
-  "ml_clj"
+  "cljml"
   "odoc" {with-doc}
 ]
 build: [
@@ -26,5 +26,5 @@ build: [
     "@doc" {with-doc}
   ]
 ]
-dev-repo: "git+https://github.com/silent-brad/ml_clj.git"
+dev-repo: "git+https://github.com/silent-brad/cljml.git"
 x-maintenance-intent: ["(latest)"]

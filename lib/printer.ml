@@ -72,3 +72,4 @@ let rec string_exp =
   | Do es ->
     let string_es = String.concat " " (List.map string_exp es) in
     "(do " ^ string_es ^ ")"
+  | LoadFile e -> "(load-file " ^ string_exp e ^ ")"

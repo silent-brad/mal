@@ -1,6 +1,7 @@
-#+TITLE: Simple Clojure Interpreter in OCaml
+#+TITLE: CljML
+#+DESCRIPTION: Simple Clojure Interpreter in OCaml
 #+DATE: 07/07/2026
 
-Writing a simple Clojure lisp interpreter in OCaml.
+A simple Clojure lisp interpreter implemented in OCaml.
 
 Inspired from [[https://bernsteinbear.com/blog/lisp/][Max Bernstein's Writing a Lisp series]].

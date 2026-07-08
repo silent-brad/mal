@@ -1,5 +1,5 @@
 {
-  description = "ml_clj";
+  description = "cljml";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -29,11 +29,14 @@
             ocamlPackages.utop
             opam
 
-            cljfmt
+            cljstyle
+
+            just
           ];
 
           shellHook = ''
-            echo "OCaml $(ocaml -version)"
+            export PATH="$PATH:$HOME/.local/bin"
+            just --unstable --justfile ${./justfile}
           '';
         };
       }

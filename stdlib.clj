@@ -1,4 +1,14 @@
-(defn o [f g] (fn [x] (f (g x))))
+(defmacro ns
+  [name]
+  `(do (in-ns '~name)
+       (def *ns* '~name)))
+
+
+(defn o
+  [f g]
+  (fn [x] (f (g x))))
+
+
 (def caar (o car car))
 (def cadr (o car cdr))
 (def caddr (o cadr cdr))
@@ -10,54 +20,80 @@
 (def newline (itoc 10))
 (def space (itoc 32))
 
-(defn println [s]
+
+(defn println
+  [s]
   (let [ok (print s)]
     (print newline)))
 
-(defmacro when [cond body]
+
+(defmacro when
+  [cond body]
   `(if ,cond ,body))
 
-(defmacro unless [cond body]
+
+(defmacro unless
+  [cond body]
   `(if ,cond nil ,body))
 
-(defn getline []
+
+(defn getline
+  []
   (let [ic (getchar)
         c (itoc ic)]
     (if (or (= c newline) (= ic -1))
       empty-symbol
       (cat c (getline)))))
 
-(defn null? [xs]
+
+(defn null?
+  [xs]
   (= xs '()))
 
-(defn empty? [xs]
+
+(defn empty?
+  [xs]
   (null? xs))
 
-(defn not [x]
+
+(defn not
+  [x]
   (if x false true))
 
-(defn inc [x]
+
+(defn inc
+  [x]
   (+ x 1))
 
-(defn dec [x]
+
+(defn dec
+  [x]
   (- x 1))
 
-(defn length [ls]
+
+(defn length
+  [ls]
   (if (null? ls)
     0
     (+ 1 (length (cdr ls)))))
 
-(defn take [n ls]
+
+(defn take
+  [n ls]
   (if (or (< n 1) (null? ls))
     '()
     (cons (car ls) (take (- n 1) (cdr ls)))))
 
-(defn drop [n ls]
+
+(defn drop
+  [n ls]
   (if (or (< n 1) (null? ls))
     ls
     (drop (- n 1) (cdr ls))))
 
-(defn merge [xs ys]
+
+(defn merge
+  [xs ys]
   (if (null? xs)
     ys
     (if (null? ys)
@@ -66,7 +102,9 @@
         (cons (car xs) (merge (cdr xs) ys))
         (cons (car ys) (merge xs (cdr ys)))))))
 
-(defn mergesort [ls]
+
+(defn mergesort
+  [ls]
   (if (null? ls)
     ls
     (if (null? (cdr ls))
@@ -77,13 +115,17 @@
             second (drop half ls)]
         (merge (mergesort first) (mergesort second))))))
 
-(defn map [f xs]
+
+(defn map
+  [f xs]
   (let [s (seq xs)]
     (if (null? s)
       '()
       (cons (f (car s)) (map f (cdr s))))))
 
-(defn filter [pred xs]
+
+(defn filter
+  [pred xs]
   (let [s (seq xs)]
     (if (null? s)
       '()
@@ -91,7 +133,9 @@
         (cons (car s) (filter pred (cdr s)))
         (filter pred (cdr s))))))
 
-(defn reduce [f init xs]
+
+(defn reduce
+  [f init xs]
   (let [s (seq xs)]
     (if (null? s)
       init

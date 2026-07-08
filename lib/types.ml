@@ -53,6 +53,7 @@ and exp =
   | Let of (pattern * exp) list * exp
   | Defexp of def
   | Do of exp list
+  | LoadFile of exp
 
 and def =
   | Val of name * exp

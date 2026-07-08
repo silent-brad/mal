@@ -3,6 +3,7 @@ open Env
 open Printer
 open Reader
 open Ast
+open Lwt.Syntax
 
 let rec macro_expand env sexp =
   let rec qq = function
@@ -63,6 +64,7 @@ and subst names rest args template =
 and subst1 name replacement = function
   | Symbol s when s = name -> replacement
   | Pair (a, b) -> Pair (subst1 name replacement a, subst1 name replacement b)
+  | Quote e -> Quote (subst1 name replacement e)
   | other -> other
 
 let rec destructure pat value env =
@@ -158,7 +160,9 @@ let rec evalexp exp env =
   let rec ev = function
     | Literal (Quote e) -> e
     | Literal l -> l
-    | Var n -> lookup (n, env)
+    | Var n ->
+      let qualified = !current_ns ^ "/" ^ n in
+      (try lookup (qualified, env) with NotFound _ -> lookup (n, env))
     | If (c, t, f) when ev c = Boolean false -> ev f
     | If (c, t, f) when ev c = Nil -> ev f
     | If (c, t, f) -> ev t
@@ -168,13 +172,9 @@ let rec evalexp exp env =
       let _ = ev e in
       ev (Do es)
     | And (c1, c2) ->
-      (match ev c1, ev c2 with
-       | Boolean v1, Boolean v2 -> Boolean (v1 && v2)
-       | _ -> raise @@ TypeError "(and bool bool)")
+      (match ev c1 with (Nil | Boolean false) as f -> f | _ -> ev c2)
     | Or (c1, c2) ->
-      (match ev c1, ev c2 with
-       | Boolean v1, Boolean v2 -> Boolean (v1 || v2)
-       | _ -> raise @@ TypeError "(or bool bool)")
+      (match ev c1 with Nil | Boolean false -> ev c2 | other -> other)
     | Apply (fn, e) -> evalapply (ev fn) (pair_to_list (ev e))
     | Call (Var "env", []) -> env_to_val env
     | Call (e, es) -> evalapply (ev e) (List.map ev es)
@@ -186,6 +186,7 @@ let rec evalexp exp env =
       in
       evalexp body (List.fold_left evbinding env bs)
     | Defexp d -> raise ThisCan'tHappenError
+    | LoadFile _ -> raise ThisCan'tHappenError
   in
   try ev exp with
   | e ->
@@ -196,17 +197,56 @@ let rec evalexp exp env =
 let evaldef def env =
   match def with
   | Val (n, e) ->
+    let qualified = !current_ns ^ "/" ^ n in
     let loc = mkloc () in
-    let env' = (n, loc) :: env in
+    let loc_unq = mkloc () in
+    let env' = (qualified, loc) :: (n, loc_unq) :: env in
     let v = evalexp e env' in
     loc := Some v;
+    loc_unq := Some v;
     v, env'
   | Exp e -> evalexp e env, env
 
 let rec eval ast env =
-  match ast with Defexp d -> evaldef d env | e -> evalexp e env, env
+  match ast with
+  | Defexp d -> evaldef d env
+  | LoadFile e -> eval_load_file e env
+  | Do es -> eval_do es env
+  | e -> evalexp e env, env
 
-let eval_sexp sexp env =
+and eval_do es env =
+  match es with
+  | [] -> Nil, env
+  | [ e ] -> eval e env
+  | e :: rest ->
+    let _, env' = eval e env in
+    eval_do rest env'
+
+and eval_load_file path_exp env =
+  let path_val = evalexp path_exp env in
+  match path_val with
+  | String s ->
+    let text = In_channel.with_open_text s In_channel.input_all in
+    let stm = mkstringstream text in
+    let run_sync p =
+      match Lwt.state p with
+      | Lwt.Return v -> v
+      | Lwt.Fail e -> raise e
+      | Lwt.Sleep -> Lwt_main.run p
+    in
+    let rec slurp env =
+      try
+        let sexp = run_sync (read_sexp stm) in
+        let _, env' = eval_sexp sexp env in
+        slurp env'
+      with
+      | End_of_file -> env
+    in
+    let new_env = slurp env in
+    Symbol "ok", new_env
+  | _ -> raise @@ TypeError "(load-file \"path\")"
+
+and eval_sexp sexp env =
   let expanded = macro_expand env sexp in
   let ast = build_ast expanded in
   eval ast env
@@ -234,12 +274,16 @@ let basis =
   in
   let prim_car = function
     | [ Pair (car, _) ] -> car
-    | [ e ] -> raise @@ TypeError ("(car non-nil-pair) " ^ string_val e)
+    | [ Vector v ] -> if v <> [] then List.hd v else Nil
+    | [ Nil ] -> Nil
+    | [ e ] -> raise @@ TypeError ("(car pair) got " ^ string_val e)
     | _ -> raise @@ TypeError "(car single-arg)"
   in
   let prim_cdr = function
     | [ Pair (_, cdr) ] -> cdr
-    | [ e ] -> raise @@ TypeError ("(cdr non-nil-pair) " ^ string_val e)
+    | [ Vector v ] -> if List.length v > 1 then Vector (List.tl v) else Nil
+    | [ Nil ] -> Nil
+    | [ e ] -> raise @@ TypeError ("(cdr pair) got " ^ string_val e)
     | _ -> raise @@ TypeError "(cdr single-arg)"
   in
   let prim_eq = function
@@ -348,6 +392,63 @@ let basis =
     | [ _ ] -> Boolean false
     | _ -> raise @@ TypeError "(map? val)"
   in
+  let prim_listp = function
+    | [ e ] -> Boolean (is_list e)
+    | _ -> raise @@ TypeError "(list? x)"
+  in
+  let prim_seqp = function
+    | [ Nil ] | [ Pair _ ] | [ Vector _ ] -> Boolean true
+    | [ _ ] -> Boolean false
+    | _ -> raise @@ TypeError "(seq? x)"
+  in
+  let prim_numberp = function
+    | [ Fixnum _ ] -> Boolean true
+    | [ _ ] -> Boolean false
+    | _ -> raise @@ TypeError "(number? x)"
+  in
+  let prim_keywordp = function
+    | [ Keyword _ ] -> Boolean true
+    | [ _ ] -> Boolean false
+    | _ -> raise @@ TypeError "(keyword? x)"
+  in
+  let prim_symbolp = function
+    | [ Symbol _ ] -> Boolean true
+    | [ _ ] -> Boolean false
+    | _ -> raise @@ TypeError "(symbol? x)"
+  in
+  let prim_not_eq = function
+    | [ a; b ] -> Boolean (a <> b)
+    | _ -> raise @@ TypeError "(not= a b)"
+  in
+  let prim_str = function
+    | args ->
+      let coerce x =
+        match x with String s -> s | other -> string_val other
+      in
+      String (String.concat "" (List.map coerce args))
+  in
+  let prim_slurp = function
+    | [ String s ] ->
+      String (In_channel.with_open_text s In_channel.input_all)
+    | _ -> raise @@ TypeError "(slurp path)"
+  in
+  let prim_spit = function
+    | [ String path; String content ] ->
+      Out_channel.with_open_text path (fun oc ->
+        Out_channel.output_string oc content);
+      Symbol "ok"
+    | _ -> raise @@ TypeError "(spit path content)"
+  in
+  let prim_println = function
+    | [ v ] ->
+      print_endline (string_val v);
+      Symbol "ok"
+    | _ -> raise @@ TypeError "(println val)"
+  in
+  let prim_readline = function
+    | [] -> (try String (read_line ()) with End_of_file -> Nil)
+    | _ -> raise @@ TypeError "(read-line)"
+  in
   List.fold_left
     newprim
     []
@@ -364,10 +465,24 @@ let basis =
     ; "first", prim_car
     ; "rest", prim_cdr
     ; "=", prim_eq
+    ; "not=", prim_not_eq
     ; "atom?", prim_atomp
     ; "sym?", prim_symp
+    ; "symbol?", prim_symbolp
+    ; "keyword?", prim_keywordp
+    ; "number?", prim_numberp
+    ; "string?", prim_stringp
+    ; "vector?", prim_vectorp
+    ; "map?", prim_mapp
+    ; "list?", prim_listp
+    ; "seq?", prim_seqp
     ; "getchar", prim_getchar
     ; "print", prim_print
+    ; "println", prim_println
+    ; "read-line", prim_readline
+    ; "str", prim_str
+    ; "slurp", prim_slurp
+    ; "spit", prim_spit
     ; "itoc", prim_itoc
     ; "cat", prim_cat
     ; "vector", prim_vector
@@ -375,9 +490,6 @@ let basis =
     ; "get", prim_get
     ; "assoc", prim_assoc
     ; "gensym", prim_gensym
-    ; "string?", prim_stringp
-    ; "vector?", prim_vectorp
-    ; "map?", prim_mapp
     ; ("deref", function [ x ] -> x | _ -> raise @@ TypeError "(deref ref)")
     ; ("set", function args -> Set args)
     ; "nth", prim_nth

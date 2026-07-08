@@ -87,10 +87,43 @@ let rec build_ast sexp =
        If (build_ast cond, build_ast iftrue, build_ast iffalse)
      | Symbol "cond" :: conditions -> cond_to_if conditions
      | [ Symbol "and"; c1; c2 ] -> And (build_ast c1, build_ast c2)
+     | Symbol "and" :: c1 :: c2 :: cs ->
+       build_ast
+         (Pair
+            ( Symbol "and"
+            , Pair
+                ( c1
+                , Pair
+                    ( Pair
+                        ( Symbol "and"
+                        , Pair
+                            ( c2
+                            , List.fold_right
+                                (fun x acc -> Pair (x, acc))
+                                cs
+                                Nil ) )
+                    , Nil ) ) ))
      | [ Symbol "or"; c1; c2 ] -> Or (build_ast c1, build_ast c2)
+     | Symbol "or" :: c1 :: c2 :: cs ->
+       build_ast
+         (Pair
+            ( Symbol "or"
+            , Pair
+                ( c1
+                , Pair
+                    ( Pair
+                        ( Symbol "or"
+                        , Pair
+                            ( c2
+                            , List.fold_right
+                                (fun x acc -> Pair (x, acc))
+                                cs
+                                Nil ) )
+                    , Nil ) ) ))
      | [ Symbol "quote"; e ] -> Literal (Quote e)
      | [ Symbol "quasiquote"; e ] -> build_ast (Quote (quasiquote e))
      | Symbol "do" :: body -> Do (List.map build_ast body)
+     | [ Symbol "load-file"; e ] -> LoadFile (build_ast e)
      | [ Symbol "def"; Symbol n; e ] -> Defexp (Val (n, build_ast e))
      | Symbol "let" :: bindings :: body when body <> [] ->
        let mkbinding = function

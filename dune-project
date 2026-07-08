@@ -1,17 +1,17 @@
 (lang dune 3.21)
 
-(name ml_clj)
+(name cljml)
 
 (generate_opam_files true)
 
 (source
- (github silent-brad/ml_clj))
+ (github silent-brad/cljml))
 
 (authors "Brad White")
 
 (license LICENSE)
 
 (package
- (name ml_clj)
+ (name cljml)
  (synopsis "Simple Clojure interpreter in OCaml")
- (depends ocaml lwt ml_clj))
+ (depends ocaml lwt cljml))
