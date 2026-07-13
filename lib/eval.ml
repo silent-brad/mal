@@ -7,6 +7,21 @@ open Macro
 open Pattern
 open Primitive
 
+let error_msg e =
+  match e with
+  | SyntaxError msg
+  | ParseError msg
+  | TypeError msg
+  | NotFound msg
+  | UnspecifiedValue msg
+  | UniqueError msg ->
+    msg
+  | e -> Printexc.to_string e
+
+let print_error e =
+  let file, line = !current_source in
+  Printf.printf "Error at %s:%d: %s\n%!" file line (error_msg e)
+
 let rec evalexp exp env =
   let evalapply f vs =
     match f with
@@ -62,11 +77,7 @@ let rec evalexp exp env =
     | Defexp d -> raise ThisCan'tHappenError
     | LoadFile _ -> raise ThisCan'tHappenError
   in
-  try ev exp with
-  | e ->
-    let err = Printexc.to_string e in
-    print_endline ("Error: " ^ err ^ " in expression " ^ string_exp exp);
-    raise e
+  ev exp
 
 let evaldef def env =
   match def with
@@ -101,7 +112,7 @@ and eval_load_file path_exp env =
   match path_val with
   | String s ->
     let text = In_channel.with_open_text s In_channel.input_all in
-    let stm = mkstringstream text in
+    let stm = mkstringstream ~filename:s text in
     let run_sync p =
       match Lwt.state p with
       | Lwt.Return v -> v
@@ -110,19 +121,29 @@ and eval_load_file path_exp env =
     in
     let rec slurp env =
       try
-        let sexp = run_sync (read_sexp stm) in
+        let sexp, source, line = run_sync (read_sexp_with_loc stm) in
+        current_source := source, line;
         let _, env' = eval_sexp sexp env in
         slurp env'
       with
       | End_of_file -> env
+      | e -> print_error e; env
     in
     Symbol "ok", slurp env
   | _ -> raise @@ TypeError "(load-file \"path\")"
 
 and eval_sexp sexp env =
-  let expanded = Macro.expand env sexp in
-  let ast = build_ast expanded in
-  eval ast env
+  let sexp_str = Printer.string_val sexp in
+  try
+    let expanded = Macro.expand env sexp in
+    let ast = build_ast expanded in
+    eval ast env
+  with
+  | e ->
+    print_error e;
+    if sexp_str <> "" then
+      Printf.printf "  in: %s\n%!" sexp_str;
+    Nil, env
 
 let basis =
   List.fold_left

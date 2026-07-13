@@ -1,40 +1,50 @@
 open Types
 open Lwt.Syntax
 
-let mkstream is_stdin stm = { chr = []; line_num = 1; is_stdin; stm }
-let mkstringstream s = mkstream false (Lwt_stream.of_string s)
+let mkstream is_stdin source stm =
+  { line_num = ref 1; col_pos = ref 0; chr = []; is_stdin; source; stm }
 
-let mkfilestream f =
+let mkstringstream ?(filename = "<string>") s =
+  mkstream false filename (Lwt_stream.of_string s)
+
+let mkfilestream name f =
   if f = stdin then (
     let get () = Lwt_io.read_char_opt Lwt_io.stdin in
-    mkstream true (Lwt_stream.from get))
-  else
-    mkstream false (Lwt_stream.of_string (In_channel.input_all f))
+    mkstream true "<stdin>" (Lwt_stream.from get))
+  else (
+    let source = In_channel.input_all f in
+    mkstream false name (Lwt_stream.of_string source))
+
+let unread_char stm c = stm.chr <- c :: stm.chr
+let is_white c = c = ' ' || c = '\t' || c = '\n' || c = '\r' || c = ','
+let string_of_char c = String.make 1 c
 
 let read_char stm =
   match stm.chr with
   | [] ->
-    let* c = Lwt_stream.get stm.stm in
-    (match c with
+    let* copt = Lwt_stream.get stm.stm in
+    (match copt with
      | None -> Lwt.fail End_of_file
      | Some c ->
        if c = '\n' then (
-         stm.line_num <- stm.line_num + 1;
-         Lwt.return c)
+         stm.line_num := !(stm.line_num) + 1;
+         stm.col_pos := 0)
        else
-         Lwt.return c)
+         stm.col_pos := !(stm.col_pos) + 1;
+       Lwt.return c)
   | c :: rest ->
     stm.chr <- rest;
     Lwt.return c
 
-let unread_char stm c = stm.chr <- c :: stm.chr
-let is_white c = c = ' ' || c = '\t' || c = '\n'
+let loc stm = !(stm.line_num), !(stm.col_pos), stm.source
 
 let rec eat_whitespace stm =
   let* c = read_char stm in
   if is_white c then eat_whitespace stm else Lwt.return (unread_char stm c)
 
-let string_of_char c = String.make 1 c
+let error stm msg =
+  let line, col, source = loc stm in
+  Lwt.fail @@ SyntaxError (Printf.sprintf "%s:%d:%d: %s" source line col msg)
 
 let rec read_sexp stm =
   let is_digit c =
@@ -52,7 +62,9 @@ let rec read_sexp stm =
   let is_symstartchar =
     let is_alpha = function 'A' .. 'Z' | 'a' .. 'z' -> true | _ -> false in
     function
-    | '*' | '/' | '>' | '<' | '=' | '?' | '!' | '+' | ':' | '%' | '&' -> true
+    | '*' | '/' | '>' | '<' | '=' | '?' | '!' | '+' | ':' | '%' | '&' | '-'
+      ->
+      true
     | c -> is_alpha c
   in
   let rec read_symbol () =
@@ -211,10 +223,15 @@ let rec read_sexp stm =
     | '_' ->
       let* _ = read_sexp stm in
       read_sexp stm
-    | _ ->
-      Lwt.fail @@ SyntaxError ("Invalid dispatch macro: #" ^ Char.escaped x)
+    | _ -> error stm ("Invalid dispatch macro: #" ^ Char.escaped x)
   else if c = '\'' then
     let* e = read_sexp stm in
     Lwt.return (Pair (Symbol "quote", Pair (e, Nil)))
   else
-    Lwt.fail @@ SyntaxError ("Unexpected char " ^ Char.escaped c)
+    error stm ("Unexpected char " ^ Char.escaped c)
+
+let read_sexp_with_loc stm =
+  let* () = eat_whitespace stm in
+  let line = !(stm.line_num) in
+  let* sexp = read_sexp stm in
+  Lwt.return (sexp, stm.source, line)

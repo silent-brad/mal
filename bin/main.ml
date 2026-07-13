@@ -8,26 +8,34 @@ let rec repl stm env =
     else
       Lwt.return ()
   in
-  let* sexp = read_sexp stm in
-  let result, env' = Eval.eval_sexp sexp env in
-  let* () =
-    if stm.is_stdin then (
-      print_endline (string_val result);
-      Lwt.return ())
-    else
-      Lwt.return ()
-  in
-  repl stm env'
+  Lwt.catch
+    (fun () ->
+       let* sexp, source, line = read_sexp_with_loc stm in
+       Types.current_source := source, line;
+       let result, env' = Eval.eval_sexp sexp env in
+       let* () =
+         if stm.is_stdin then (
+           print_endline (string_val result);
+           Lwt.return ())
+         else
+           Lwt.return ()
+       in
+       repl stm env')
+    (function
+      | SyntaxError msg ->
+        print_endline msg;
+        if stm.is_stdin then repl stm env else Lwt.return ()
+      | End_of_file -> Lwt.return ()
+      | e -> Lwt.fail e)
 
-let get_ic () = try open_in Sys.argv.(1) with Invalid_argument s -> stdin
+let get_input () =
+  try
+    let filename = Sys.argv.(1) in
+    filename, open_in filename
+  with
+  | Invalid_argument _ -> "<stdin>", stdin
 
 let main =
-  let ic = get_ic () in
-  Lwt_main.run
-    (Lwt.catch
-       (fun () -> repl (mkfilestream ic) stdlib)
-       (function
-         | End_of_file ->
-           if ic <> stdin then close_in ic;
-           Lwt.return ()
-         | e -> Lwt.fail e))
+  let filename, ic = get_input () in
+  Lwt_main.run (repl (mkfilestream filename ic) stdlib);
+  if ic <> stdin then close_in ic

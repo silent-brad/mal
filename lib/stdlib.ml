@@ -9,7 +9,8 @@ let stdlib =
   let rec slurp stm env =
     Lwt.catch
       (fun () ->
-         let* sexp = read_sexp stm in
+         let* sexp, source, line = read_sexp_with_loc stm in
+         current_source := source, line;
          let _, env' = eval_sexp sexp env in
          slurp stm env')
       (function End_of_file -> Lwt.return env | e -> Lwt.fail e)
@@ -17,5 +18,5 @@ let stdlib =
   let stm_text =
     In_channel.with_open_text "stdlib.clj" In_channel.input_all
   in
-  let stm = mkstringstream stm_text in
+  let stm = mkstringstream ~filename:"stdlib.clj" stm_text in
   Lwt_main.run (slurp stm basis)

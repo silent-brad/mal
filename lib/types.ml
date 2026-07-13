@@ -7,13 +7,16 @@ exception UnspecifiedValue of string
 exception UniqueError of string
 
 let current_ns = ref "user"
+let current_source = ref ("", 0)
 
 type 'a env = (string * 'a option ref) list
 
 type stream =
-  { mutable line_num : int
+  { line_num : int ref
+  ; col_pos : int ref
   ; mutable chr : char list
   ; is_stdin : bool
+  ; source : string
   ; stm : char Lwt_stream.t
   }
 
